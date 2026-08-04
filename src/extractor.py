@@ -5,9 +5,7 @@ from __future__ import annotations
 from io import BytesIO
 from typing import Any
 
-from dotenv import load_dotenv
 
-load_dotenv()
 
 try:
     import fitz  # type: ignore
