@@ -67,3 +67,20 @@ def test_extract_notice_fields_raises_for_unsupported_type() -> None:
     """Unsupported file types should raise a clear extraction error."""
     with pytest.raises(extractor.ExtractionError, match="Unsupported file type"):
         extractor.extract_notice_fields(b"fake", "text/plain")
+
+
+def test_cross_format_consistency(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PDF and JPEG OCR of the same notice should produce the same parsed fields."""
+    pdf_text = "Notice ID: N-500\nRecipient: ACME Corp\nAmount Due: $50\nDue Date: 2026-12-01"
+    jpeg_text = 'notice id = "N-500" recipient: ACME Corp amount due $50 due date 2026-12-01'
+
+    monkeypatch.setattr(extractor, "_extract_text_from_pdf", lambda file_bytes: pdf_text)
+    monkeypatch.setattr(extractor, "_extract_text_from_image", lambda file_bytes: jpeg_text)
+
+    pdf_result = extractor.extract_notice_fields(b"%PDF-1.4 fake", "application/pdf")
+    img_result = extractor.extract_notice_fields(b"fake-jpeg", "image/jpeg")
+
+    assert pdf_result["notice_id"] == img_result["notice_id"] == "N-500"
+    assert pdf_result["recipient"] == img_result["recipient"] == "ACME Corp"
+    assert pdf_result["amount_due"] == img_result["amount_due"] == 50
+    assert pdf_result["due_date"] == img_result["due_date"] == "2026-12-01"

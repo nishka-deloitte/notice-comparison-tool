@@ -22,6 +22,8 @@ def _parse_amount(value: str | None) -> float | int | None:
         return None
 
     cleaned = value.replace(",", "").replace("$", "").strip()
+    # Strip common trailing punctuation introduced by OCR or surrounding text
+    cleaned = cleaned.rstrip(".,;:")
     if not cleaned:
         return None
 
@@ -71,14 +73,17 @@ def parse_notice_fields(text: str) -> tuple[dict[str, Any], list[str], str | Non
     notice_id_patterns = [
         rf"notice[_ ]id\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
     ]
+    # Allow commas inside recipient names (e.g., "Last, Jr.") so exclude only
+    # quotes and newlines from the capture for recipient. For amounts, capture
+    # only numeric/currency characters to keep internal commas/periods.
     recipient_patterns = [
-        rf"recipient\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
-        rf"to\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+        rf"recipient\s*[\"']?\s*{sep}\s*[\"']?([^\"'\n]+)",
+        rf"to\s*[\"']?\s*{sep}\s*[\"']?([^\"'\n]+)",
     ]
     amount_patterns = [
-        rf"amount[_ ]due\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
-        rf"amount\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
-        rf"balance\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+        rf"amount[_ ]due\s*[\"']?\s*{sep}\s*[\"']?([\$0-9,\.]+)",
+        rf"amount\s*[\"']?\s*{sep}\s*[\"']?([\$0-9,\.]+)",
+        rf"balance\s*[\"']?\s*{sep}\s*[\"']?([\$0-9,\.]+)",
     ]
     due_date_patterns = [
         rf"(?:due|issue)[_ ]date\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
@@ -93,7 +98,9 @@ def parse_notice_fields(text: str) -> tuple[dict[str, Any], list[str], str | Non
 
     recipient = _first_match(normalized, recipient_patterns)
     if recipient:
-        parsed["recipient"] = recipient.strip()
+        # Trim any trailing content that looks like the next field (amount/due)
+        tail_split = re.split(r"\b(?:amount|balance|due|issue|notice)\b", recipient, flags=re.IGNORECASE)
+        parsed["recipient"] = tail_split[0].strip()
     else:
         unparsed.append("recipient")
 

@@ -124,38 +124,41 @@ def main() -> None:
             except (ExtractionError, ValueError) as exc:
                 st.error(str(exc))
                 st.session_state["notice_b"] = None
+    # Advanced debug toggle to show temporary extraction details
+    show_debug = st.checkbox("Advanced: show extraction details", value=False)
 
-    if st.session_state["notice_a"] is not None:
-        with st.expander("Debug: Notice A raw output", expanded=False):
-            st.subheader("Raw extracted text")
-            st.text_area(
-                "",
-                st.session_state["notice_a"].get("metadata", {}).get("raw_text", ""),
-                height=240,
-                key="debug_raw_text_a",
-            )
-            st.subheader("Parsed field dict")
-            st.json({
-                key: value
-                for key, value in st.session_state["notice_a"].items()
-                if key != "metadata"
-            })
+    if show_debug:
+        if st.session_state["notice_a"] is not None:
+            with st.expander("Debug: Notice A raw output", expanded=False):
+                st.subheader("Raw extracted text")
+                st.text_area(
+                    "",
+                    st.session_state["notice_a"].get("metadata", {}).get("raw_text", ""),
+                    height=240,
+                    key="debug_raw_text_a",
+                )
+                st.subheader("Parsed field dict")
+                st.json({
+                    key: value
+                    for key, value in st.session_state["notice_a"].items()
+                    if key != "metadata"
+                })
 
-    if st.session_state["notice_b"] is not None:
-        with st.expander("Debug: Notice B raw output", expanded=False):
-            st.subheader("Raw extracted text")
-            st.text_area(
-                "",
-                st.session_state["notice_b"].get("metadata", {}).get("raw_text", ""),
-                height=240,
-                key="debug_raw_text_b",
-            )
-            st.subheader("Parsed field dict")
-            st.json({
-                key: value
-                for key, value in st.session_state["notice_b"].items()
-                if key != "metadata"
-            })
+        if st.session_state["notice_b"] is not None:
+            with st.expander("Debug: Notice B raw output", expanded=False):
+                st.subheader("Raw extracted text")
+                st.text_area(
+                    "",
+                    st.session_state["notice_b"].get("metadata", {}).get("raw_text", ""),
+                    height=240,
+                    key="debug_raw_text_b",
+                )
+                st.subheader("Parsed field dict")
+                st.json({
+                    key: value
+                    for key, value in st.session_state["notice_b"].items()
+                    if key != "metadata"
+                })
 
     can_run_comparison = st.session_state["notice_a"] is not None and st.session_state["notice_b"] is not None
 
