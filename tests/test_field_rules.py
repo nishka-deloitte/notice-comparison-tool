@@ -44,3 +44,20 @@ def test_extra_punctuation_and_noise():
     assert parsed.get("amount_due") == 2500
     assert parsed.get("due_date") == "2026-03-03"
     assert json_err is None
+
+
+def test_generic_separator_variations():
+    # Ensure different separators (colon, equals, underscore) are handled for each field
+    examples = [
+        (':', 'notice_id: "N-700" recipient: "Z Corp" amount_due: $700 due_date: 2026-07-01'),
+        ('=', 'notice_id= "N-701" recipient= "Y Corp" amount_due= $701 due_date= 2026-07-02'),
+        ('_', 'notice_id_ "N-702" recipient_ "X Corp" amount_due_ $702 due_date_ 2026-07-03'),
+    ]
+
+    for sep_char, text in examples:
+        parsed, unparsed, json_err = parse_notice_fields(text)
+        assert parsed.get("notice_id") is not None
+        assert parsed.get("recipient") is not None
+        assert parsed.get("amount_due") is not None
+        assert parsed.get("due_date") is not None
+        assert json_err is None

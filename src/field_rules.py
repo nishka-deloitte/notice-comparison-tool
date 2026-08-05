@@ -68,8 +68,10 @@ def parse_notice_fields(text: str) -> tuple[dict[str, Any], list[str], str | Non
     # Patterns follow: allow underscore or space in field name,
     # allow separators :, =, - with optional whitespace, optional wrapping quotes,
     # capture up to next comma, quote, or linebreak.
-    # Allow explicit separators (:, =, -) or just whitespace as a separator
-    sep = r"(?:[:=\-]|\s)"
+    # Allow any run of non-alphanumeric characters as a separator between
+    # the field name and its value (covers quotes, colons, equals, hyphens,
+    # underscores, semicolons, whitespace, etc.).
+    sep = r"(?:[^A-Za-z0-9]+)"
     notice_id_patterns = [
         rf"notice[_ ]id\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
     ]
