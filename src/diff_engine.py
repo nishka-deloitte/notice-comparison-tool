@@ -67,7 +67,11 @@ def _compare_nested(left: dict[str, Any], right: dict[str, Any], prefix: str = "
 
 def compare_notices(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
     """Compare two notice extraction results and return a structured diff result."""
-    differences = _compare_nested(left, right)
+    # Exclude internal diagnostic keys from comparison
+    left_for_compare = {k: v for k, v in left.items() if k != "metadata"}
+    right_for_compare = {k: v for k, v in right.items() if k != "metadata"}
+
+    differences = _compare_nested(left_for_compare, right_for_compare)
     mismatch_count = sum(1 for entry in differences if entry["status"] == "mismatch")
     missing_count = sum(1 for entry in differences if entry["status"] == "missing")
 

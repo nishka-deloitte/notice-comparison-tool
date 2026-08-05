@@ -60,3 +60,28 @@ def test_compare_notices_marks_missing_fields() -> None:
     assert missing_entry["status"] == "missing"
     assert missing_entry["value_a"] is None
     assert missing_entry["value_b"] == "2026-02-01"
+
+
+def test_metadata_is_excluded_from_comparison() -> None:
+    """Ensure `metadata` keys are not included in diff comparisons."""
+    left = {
+        "notice_id": "N-900",
+        "recipient": "Foo Corp",
+        "amount_due": 100,
+        "due_date": "2026-07-01",
+        "metadata": {"raw_text": "left text", "source": "fitz+easyocr"},
+    }
+
+    right = {
+        "notice_id": "N-900",
+        "recipient": "Foo Corp",
+        "amount_due": 100,
+        "due_date": "2026-07-01",
+        "metadata": {"raw_text": "right text with OCR noise", "source": "fitz+easyocr"},
+    }
+
+    result = compare_notices(left, right)
+
+    # Differences should be empty since only metadata differs
+    assert result["status"] == "match"
+    assert all(not entry["field"].startswith("metadata") for entry in result["differences"])

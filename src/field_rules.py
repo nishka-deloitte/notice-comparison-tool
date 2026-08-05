@@ -85,8 +85,10 @@ def parse_notice_fields(text: str) -> tuple[dict[str, Any], list[str], str | Non
         rf"amount\s*[\"']?\s*{sep}\s*[\"']?([\$0-9,\.]+)",
         rf"balance\s*[\"']?\s*{sep}\s*[\"']?([\$0-9,\.]+)",
     ]
+    # Only match explicit "due date" or "date due" fields — avoid matching
+    # other fields like "issue_date" which also contain the word "date".
     due_date_patterns = [
-        rf"(?:due|issue)[_ ]date\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+        rf"due[_ ]date\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
         rf"date[_ ]due\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
     ]
 

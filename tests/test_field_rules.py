@@ -7,7 +7,7 @@ from src.field_rules import parse_notice_fields
 
 
 def test_garbled_json_like_fields():
-    text = '"notice_id": "N-1001", "issue_date" 2026-01-15\', "recipient"= \'Jane Doe\''
+    text = '"notice_id": "N-1001", "due_date" 2026-01-15\', "recipient"= \'Jane Doe\''
     parsed, unparsed, json_err = parse_notice_fields(text)
     assert parsed.get("notice_id") == "N-1001"
     assert parsed.get("due_date") == "2026-01-15"
@@ -16,7 +16,7 @@ def test_garbled_json_like_fields():
 
 
 def test_variations_with_spaces_and_separators():
-    text = 'notice id": "N-1001" "issue_date": "2026-01-15", "recipient": \'Jane Doe\''
+    text = 'notice id": "N-1001" "due_date": "2026-01-15", "recipient": \'Jane Doe\''
     parsed, unparsed, json_err = parse_notice_fields(text)
     assert parsed.get("notice_id") == "N-1001"
     assert parsed.get("due_date") == "2026-01-15"
@@ -26,7 +26,7 @@ def test_variations_with_spaces_and_separators():
 
 def test_missing_separators_and_split_lines():
     # Missing explicit separators and values split across lines
-    text = 'notice_id "N-2002"\nrecipient\n= "Alice Smith", amount due $1,234.00.\nissue_date - 2026-02-02'
+    text = 'notice_id "N-2002"\nrecipient\n= "Alice Smith", amount due $1,234.00.\ndue_date - 2026-02-02'
     parsed, unparsed, json_err = parse_notice_fields(text)
     assert parsed.get("notice_id") == "N-2002"
     assert parsed.get("recipient") == "Alice Smith"
@@ -37,7 +37,7 @@ def test_missing_separators_and_split_lines():
 
 def test_extra_punctuation_and_noise():
     # Extra punctuation and trailing characters
-    text = '"notice id" : "N-3003"; "issue_date": "2026-03-03".. "recipient": "Bob, Jr.", "amount_due": "$2,500.00,,"'
+    text = '"notice id" : "N-3003"; "due_date": "2026-03-03".. "recipient": "Bob, Jr.", "amount_due": "$2,500.00,,"'
     parsed, unparsed, json_err = parse_notice_fields(text)
     assert parsed.get("notice_id") == "N-3003"
     assert parsed.get("recipient") == "Bob, Jr."

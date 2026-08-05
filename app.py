@@ -47,7 +47,9 @@ def _render_field_rows(notice_a: dict[str, Any] | None, notice_b: dict[str, Any]
     diff_map = {entry["field"]: entry for entry in comparison_result.get("differences", [])}
     fields_a = {row["field"]: row["value"] for row in _flatten_fields(notice_a)}
     fields_b = {row["field"]: row["value"] for row in _flatten_fields(notice_b)}
-    all_fields = sorted(set(fields_a) | set(fields_b))
+    # Only display core notice fields in the comparison view — exclude metadata and diagnostics
+    allowed_fields = {"notice_id", "recipient", "amount_due", "due_date"}
+    all_fields = sorted(f for f in (set(fields_a) | set(fields_b)) if f in allowed_fields)
 
     st.subheader("Comparison view")
     st.caption("Fields with status indicators are highlighted for review.")
