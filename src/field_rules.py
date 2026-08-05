@@ -33,100 +33,81 @@ def _parse_amount(value: str | None) -> float | int | None:
     return int(numeric) if numeric.is_integer() else numeric
 
 
-def parse_notice_fields(text: str) -> tuple[dict[str, Any], list[str]]:
+def parse_notice_fields(text: str) -> tuple[dict[str, Any], list[str], str | None]:
     """Parse notice fields from raw OCR or PDF text.
 
     Returns a tuple of (parsed_fields, unparsed_fields).
     """
+    json_error: str | None = None
     if not text:
-        return {}, ["notice_id", "recipient", "amount_due", "due_date"]
+        return {}, ["notice_id", "recipient", "amount_due", "due_date"], None
 
-    stripped = text.strip()
-    if stripped.startswith("{") and stripped.endswith("}"):
-        try:
-            parsed_json = json.loads(stripped)
-            if isinstance(parsed_json, dict):
-                parsed_fields: dict[str, Any] = {}
-                unparsed_fields: list[str] = []
+    # Normalize common OCR substitutions before attempting regex extraction:
+    # - replace curly/typographic quotes with straight quotes
+    # - replace non-breaking spaces with regular spaces
+    # - strip leading/trailing whitespace on each line
+    normalized_text = (
+        text
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .replace("\u00A0", " ")
+    )
+    normalized_text = "\n".join(line.strip() for line in normalized_text.splitlines())
 
-                if "notice_id" in parsed_json:
-                    parsed_fields["notice_id"] = parsed_json["notice_id"]
-                else:
-                    unparsed_fields.append("notice_id")
+    # Use regex-based, OCR-tolerant extraction for each field.
+    # Drop blank lines for regex matching.
+    normalized = "\n".join(part for part in normalized_text.splitlines() if part)
 
-                if "recipient" in parsed_json:
-                    parsed_fields["recipient"] = parsed_json["recipient"]
-                else:
-                    unparsed_fields.append("recipient")
-
-                if "amount_due" in parsed_json:
-                    parsed_fields["amount_due"] = _parse_amount(str(parsed_json["amount_due"])) if parsed_json["amount_due"] is not None else None
-                    if parsed_fields["amount_due"] is None:
-                        unparsed_fields.append("amount_due")
-                else:
-                    unparsed_fields.append("amount_due")
-
-                if "due_date" in parsed_json:
-                    parsed_fields["due_date"] = parsed_json["due_date"]
-                else:
-                    unparsed_fields.append("due_date")
-
-                return parsed_fields, unparsed_fields
-        except json.JSONDecodeError:
-            pass
-
-    normalized = "\n".join(part.strip() for part in text.splitlines() if part.strip())
     parsed: dict[str, Any] = {}
     unparsed: list[str] = []
 
-    notice_id = _first_match(
-        normalized,
-        [
-            r"notice(?:\s+id)?\s*[:#-]?\s*([A-Za-z0-9\-/]+)",
-            r"id\s*number\s*[:#-]?\s*([A-Za-z0-9\-/]+)",
-        ],
-    )
+    # Patterns follow: allow underscore or space in field name,
+    # allow separators :, =, - with optional whitespace, optional wrapping quotes,
+    # capture up to next comma, quote, or linebreak.
+    # Allow explicit separators (:, =, -) or just whitespace as a separator
+    sep = r"(?:[:=\-]|\s)"
+    notice_id_patterns = [
+        rf"notice[_ ]id\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+    ]
+    recipient_patterns = [
+        rf"recipient\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+        rf"to\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+    ]
+    amount_patterns = [
+        rf"amount[_ ]due\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+        rf"amount\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+        rf"balance\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+    ]
+    due_date_patterns = [
+        rf"(?:due|issue)[_ ]date\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+        rf"date[_ ]due\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
+    ]
+
+    notice_id = _first_match(normalized, notice_id_patterns)
     if notice_id:
-        parsed["notice_id"] = notice_id
+        parsed["notice_id"] = notice_id.strip()
     else:
         unparsed.append("notice_id")
 
-    recipient = _first_match(
-        normalized,
-        [
-            r"recipient\s*[:#-]?\s*([A-Za-z0-9 .,&-]+)",
-            r"to\s+([A-Za-z0-9 .,&-]+)",
-        ],
-    )
+    recipient = _first_match(normalized, recipient_patterns)
     if recipient:
-        parsed["recipient"] = recipient
+        parsed["recipient"] = recipient.strip()
     else:
         unparsed.append("recipient")
 
-    amount_due = _first_match(
-        normalized,
-        [
-            r"amount\s+due\s*[:#-]?\s*\$?([0-9,]+(?:\.\d{1,2})?)",
-            r"amount\s*[:#-]?\s*\$?([0-9,]+(?:\.\d{1,2})?)",
-            r"balance\s*[:#-]?\s*\$?([0-9,]+(?:\.\d{1,2})?)",
-        ],
-    )
-    parsed_amount = _parse_amount(amount_due)
+    amount_val = _first_match(normalized, amount_patterns)
+    parsed_amount = _parse_amount(amount_val.strip() if amount_val else None)
     if parsed_amount is not None:
         parsed["amount_due"] = parsed_amount
     else:
         unparsed.append("amount_due")
 
-    due_date = _first_match(
-        normalized,
-        [
-            r"due\s+date\s*[:#-]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})",
-            r"date\s+due\s*[:#-]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})",
-        ],
-    )
+    due_date = _first_match(normalized, due_date_patterns)
     if due_date:
-        parsed["due_date"] = due_date
+        parsed["due_date"] = due_date.strip()
     else:
         unparsed.append("due_date")
 
-    return parsed, unparsed
+    return parsed, unparsed, json_error

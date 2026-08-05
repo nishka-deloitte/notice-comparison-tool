@@ -124,7 +124,7 @@ def extract_notice_fields(file_bytes: bytes, file_type: str) -> dict[str, Any]:
     else:
         raise ExtractionError(f"Unsupported file type: {file_type}")
 
-    parsed_fields, unparsed_fields = parse_notice_fields(raw_text)
+    parsed_fields, unparsed_fields, json_error = parse_notice_fields(raw_text)
     payload = {
         "notice_id": parsed_fields.get("notice_id"),
         "recipient": parsed_fields.get("recipient"),
@@ -136,5 +136,8 @@ def extract_notice_fields(file_bytes: bytes, file_type: str) -> dict[str, Any]:
             "unparsed_fields": unparsed_fields,
         },
     }
+
+    if json_error:
+        payload["metadata"]["json_parse_error"] = json_error
 
     return _normalize_payload(payload)
