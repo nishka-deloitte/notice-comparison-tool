@@ -131,7 +131,7 @@ def main() -> None:
 
     if show_debug:
         if st.session_state["notice_a"] is not None:
-            with st.expander("Debug: Notice A raw output", expanded=False):
+            with st.expander("Notice A raw output", expanded=False):
                 st.subheader("Raw extracted text")
                 st.text_area(
                     "",
@@ -147,7 +147,7 @@ def main() -> None:
                 })
 
         if st.session_state["notice_b"] is not None:
-            with st.expander("Debug: Notice B raw output", expanded=False):
+            with st.expander("Notice B raw output", expanded=False):
                 st.subheader("Raw extracted text")
                 st.text_area(
                     "",
