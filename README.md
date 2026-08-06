@@ -23,7 +23,7 @@ streamlit run app.py
 
 Or view the live deployment on Streamlit Cloud (replace with your app URL):
 
-Live demo: <REPLACE_WITH_YOUR_STREAMLIT_CLOUD_URL>
+Live demo: (https://notice-comparison-tool-87km8pmrxzmtuuplsrshk3.streamlit.app/)
 
 ## Usage
 
