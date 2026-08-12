@@ -58,8 +58,70 @@ def test_compare_notices_marks_missing_fields() -> None:
 
     missing_entry = next(entry for entry in result["differences"] if entry["field"] == "data.deadline")
     assert missing_entry["status"] == "missing"
+    assert missing_entry["missing_in"] == "left"
     assert missing_entry["value_a"] is None
     assert missing_entry["value_b"] == "2026-02-01"
+
+
+def test_compare_notices_uses_union_of_keys_for_same_key_mismatch() -> None:
+    """Fields present in both notices should be compared regardless of schema assumptions."""
+    left = {"notice_id": "N-100", "recipient": "Acme Corp"}
+    right = {"notice_id": "N-200", "recipient": "Acme Corp"}
+
+    result = compare_notices(left, right)
+
+    mismatch = next(entry for entry in result["differences"] if entry["field"] == "notice_id")
+    assert mismatch["status"] == "mismatch"
+    assert mismatch["value_a"] == "N-100"
+    assert mismatch["value_b"] == "N-200"
+
+
+def test_compare_notices_flags_missing_keys_in_only_one_notice() -> None:
+    """A field present in only one notice should be marked as missing in the other."""
+    left = {"notice_id": "N-100", "recipient": "Acme Corp"}
+    right = {"recipient": "Acme Corp", "amount_due": "$400"}
+
+    result = compare_notices(left, right)
+
+    missing_notice_id = next(entry for entry in result["differences"] if entry["field"] == "notice_id")
+    assert missing_notice_id["status"] == "missing"
+    assert missing_notice_id["missing_in"] == "right"
+    assert missing_notice_id["value_a"] == "N-100"
+    assert missing_notice_id["value_b"] is None
+
+    missing_amount_due = next(entry for entry in result["differences"] if entry["field"] == "amount_due")
+    assert missing_amount_due["status"] == "missing"
+    assert missing_amount_due["missing_in"] == "left"
+    assert missing_amount_due["value_a"] is None
+    assert missing_amount_due["value_b"] == "$400"
+
+
+def test_compare_notices_handles_disjoint_key_sets() -> None:
+    """Totally different key sets should still be compared across the union."""
+    left = {"notice_id": "N-100"}
+    right = {"recipient": "Acme Corp"}
+
+    result = compare_notices(left, right)
+
+    notice_id_missing = next(entry for entry in result["differences"] if entry["field"] == "notice_id")
+    recipient_missing = next(entry for entry in result["differences"] if entry["field"] == "recipient")
+
+    assert notice_id_missing["status"] == "missing"
+    assert notice_id_missing["missing_in"] == "right"
+    assert recipient_missing["status"] == "missing"
+    assert recipient_missing["missing_in"] == "left"
+
+
+def test_compare_notices_handles_completely_different_field_sets() -> None:
+    """Unrelated schemas should compare across the union without crashing or dropping labels."""
+    left = {"notice id": "N-100", "recipient": "Jane Doe"}
+    right = {"amount due": "$1,250.00", "due date": "2026-01-15"}
+
+    result = compare_notices(left, right)
+
+    fields = {entry["field"] for entry in result["differences"]}
+    assert {"notice id", "recipient", "amount due", "due date"}.issubset(fields)
+    assert all(entry["status"] == "missing" for entry in result["differences"])
 
 
 def test_metadata_is_excluded_from_comparison() -> None:

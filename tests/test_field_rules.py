@@ -6,58 +6,84 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.field_rules import parse_notice_fields
 
 
-def test_garbled_json_like_fields():
-    text = '"notice_id": "N-1001", "due_date" 2026-01-15\', "recipient"= \'Jane Doe\''
-    parsed, unparsed, json_err = parse_notice_fields(text)
-    assert parsed.get("notice_id") == "N-1001"
-    assert parsed.get("due_date") == "2026-01-15"
-    assert parsed.get("recipient") == "Jane Doe"
-    assert json_err is None
+def test_generic_label_value_parsing_variants():
+    text = """Notice ID: N-1001
+Recipient - Jane Doe
+Amount Due: $1,250.00
+Due Date: 2026-01-15
+"""
+    parsed = parse_notice_fields(text)
+
+    assert parsed["notice id"] == "N-1001"
+    assert parsed["recipient"] == "Jane Doe"
+    assert parsed["amount due"] == "$1,250.00"
+    assert parsed["due date"] == "2026-01-15"
 
 
-def test_variations_with_spaces_and_separators():
-    text = 'notice id": "N-1001" "due_date": "2026-01-15", "recipient": \'Jane Doe\''
-    parsed, unparsed, json_err = parse_notice_fields(text)
-    assert parsed.get("notice_id") == "N-1001"
-    assert parsed.get("due_date") == "2026-01-15"
-    assert parsed.get("recipient") == "Jane Doe"
-    assert json_err is None
+def test_generic_label_value_parsing_with_ocr_noise():
+    text = """N0T1CE_ID:: N-2022
+AM0UNT__DUE--- $2,500.00
+R3cipi3nt   =   Jane   Doe
+"""
+    parsed = parse_notice_fields(text)
+
+    assert parsed["n0t1ce id"] == "N-2022"
+    assert parsed["am0unt due"] == "$2,500.00"
+    assert parsed["r3cipi3nt"] == "Jane Doe"
 
 
-def test_missing_separators_and_split_lines():
-    # Missing explicit separators and values split across lines
-    text = 'notice_id "N-2002"\nrecipient\n= "Alice Smith", amount due $1,234.00.\ndue_date - 2026-02-02'
-    parsed, unparsed, json_err = parse_notice_fields(text)
-    assert parsed.get("notice_id") == "N-2002"
-    assert parsed.get("recipient") == "Alice Smith"
-    assert parsed.get("amount_due") == 1234
-    assert parsed.get("due_date") == "2026-02-02"
-    assert json_err is None
+def test_non_matching_lines_are_ignored():
+    text = """----
+Page 4 of 8
+NOTICE OF DEFAULT
+This is a narrative sentence with no label/value pairs.
+Amount Due: $30.00
+"""
+    parsed = parse_notice_fields(text)
+
+    assert parsed == {"amount due": "$30.00"}
 
 
-def test_extra_punctuation_and_noise():
-    # Extra punctuation and trailing characters
-    text = '"notice id" : "N-3003"; "due_date": "2026-03-03".. "recipient": "Bob, Jr.", "amount_due": "$2,500.00,,"'
-    parsed, unparsed, json_err = parse_notice_fields(text)
-    assert parsed.get("notice_id") == "N-3003"
-    assert parsed.get("recipient") == "Bob, Jr."
-    assert parsed.get("amount_due") == 2500
-    assert parsed.get("due_date") == "2026-03-03"
-    assert json_err is None
+def test_normalization_standardizes_underscores_and_spaces():
+    text = """notice_id: N-3003
+amount_due = $123.45
+Notice ID: N-4004
+"""
+    parsed = parse_notice_fields(text)
+
+    assert parsed["notice id"] == "N-4004"
+    assert parsed["amount due"] == "$123.45"
 
 
-def test_generic_separator_variations():
-    # Ensure different separators (colon, equals, underscore) are handled for each field
-    examples = [
-        (':', 'notice_id: "N-700" recipient: "Z Corp" amount_due: $700 due_date: 2026-07-01'),
-        ('=', 'notice_id= "N-701" recipient= "Y Corp" amount_due= $701 due_date= 2026-07-02'),
-        ('_', 'notice_id_ "N-702" recipient_ "X Corp" amount_due_ $702 due_date_ 2026-07-03'),
-    ]
+def test_label_variants_with_different_casing_spacing_and_wording_match_same_notice():
+    left = """Notice ID: N-1001
+Recipient - Jane Doe
+Amount Due : $1,250.00
+Due Date = 2026-01-15
+"""
+    right = """notice_id  N-1001
+recipient    Jane Doe
+amount_due  $1,250.00
+due_date=2026-01-15
+"""
 
-    for sep_char, text in examples:
-        parsed, unparsed, json_err = parse_notice_fields(text)
-        assert parsed.get("notice_id") is not None
-        assert parsed.get("recipient") is not None
-        assert parsed.get("amount_due") is not None
-        assert parsed.get("due_date") is not None
-        assert json_err is None
+    parsed_left = parse_notice_fields(left)
+    parsed_right = parse_notice_fields(right)
+
+    assert parsed_left == parsed_right == {
+        "notice id": "N-1001",
+        "recipient": "Jane Doe",
+        "amount due": "$1,250.00",
+        "due date": "2026-01-15",
+    }
+
+
+def test_unstructured_text_returns_empty_dict_instead_of_crashing():
+    text = """This is a plain-language notice with no label/value pairs.
+There are no field names here, just narrative text.
+The document is informational only and should not parse as structured data.
+"""
+
+    parsed = parse_notice_fields(text)
+
+    assert parsed == {}

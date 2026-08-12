@@ -1,124 +1,169 @@
-"""Lightweight parsing rules for extracting notice fields from raw text."""
+"""Generic parsing rules for extracting arbitrary label/value pairs from raw text."""
 
 from __future__ import annotations
 
-import json
 import re
-from typing import Any
 
 
-def _first_match(text: str, patterns: list[str]) -> str | None:
-    """Return the first matching group from a list of regex patterns."""
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
+def _normalize_label(label: str) -> str:
+    """Normalize a field label so similar labels compare equal across OCR noise."""
+    normalized = label.strip().lower().replace("_", " ")
+    normalized = re.sub(r"[-/]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
+def _clean_value(value: str) -> str:
+    """Remove common wrapping quotes/punctuation while keeping meaningful text intact."""
+    cleaned = value.strip()
+    while len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'", "`"}:
+        cleaned = cleaned[1:-1].strip()
+    cleaned = re.sub(r"^[:=\-\s]+", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.rstrip(".,;:")
+    return cleaned.strip()
+
+
+def _is_header_like(label: str, value: str) -> bool:
+    """Reject common non-field headings like page headers or document titles."""
+    header_labels = {
+        "page",
+        "page of",
+        "notice",
+        "notice of",
+        "document",
+        "section",
+        "heading",
+        "title",
+    }
+    if label in header_labels:
+        return True
+    if re.fullmatch(r"page\s+\d+\s+of\s+\d+", label, flags=re.IGNORECASE):
+        return True
+    if re.fullmatch(r"notice\s+of\b.*", label, flags=re.IGNORECASE):
+        return True
+    if label.startswith("page ") and re.fullmatch(r"\d+", value):
+        return True
+    return False
+
+
+def _is_label_candidate(label: str) -> bool:
+    """Reject narrative or sentence-like fragments that are not field labels."""
+    if not label or len(label) < 2:
+        return False
+
+    tokens = [token for token in re.split(r"[\s_./&()\-]+", label) if token]
+    if not tokens:
+        return False
+
+    sentence_like_keywords = {
+        "this", "that", "there", "here", "with", "without", "from", "into",
+        "just", "only", "does", "did", "has", "have", "are", "is", "was",
+        "the", "a", "an", "and", "or", "for", "to", "of", "in", "on", "at",
+        "no", "not", "but", "if", "when", "then",
+    }
+    if any(token.lower() in sentence_like_keywords for token in tokens):
+        return False
+    if len(tokens) > 5:
+        return False
+    return True
+
+
+def _is_noise_line(candidate: str) -> bool:
+    """Reject technical markers and metadata noise that leak into OCR or page text."""
+    if not candidate:
+        return True
+
+    normalized = candidate.strip()
+    if not normalized:
+        return True
+
+    lower = normalized.lower()
+    if lower.startswith("[fitz_text]") or lower.startswith("[ocr_text]"):
+        return True
+    if lower.startswith("http://") or lower.startswith("https://") or lower.startswith("www."):
+        return True
+
+    if re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?(?:\s?[ap]m)?", normalized, flags=re.IGNORECASE):
+        return True
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[ap]m)?", normalized, flags=re.IGNORECASE):
+        return True
+    if re.fullmatch(r"\d{1,2}/\d{1,2}/\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[ap]m)?", normalized, flags=re.IGNORECASE):
+        return True
+
+    return False
+
+
+def _match_line(line: str) -> tuple[str, str] | None:
+    """Return a (normalized_label, value) tuple when the line matches a generic label/value pattern."""
+    candidate = line.strip()
+    if not candidate or len(candidate) < 3:
+        return None
+    if _is_noise_line(candidate):
+        return None
+
+    if re.fullmatch(r"[-*_#=]+", candidate):
+        return None
+
+    loose_match = re.split(r"\s{2,}", candidate, maxsplit=1)
+    if len(loose_match) == 2:
+        label, value = loose_match
+        label = label.strip()
+        value = _clean_value(value)
+        if not label or not value:
+            return None
+
+        normalized_label = _normalize_label(label)
+        if not _is_label_candidate(normalized_label):
+            return None
+        if _is_header_like(normalized_label, value):
+            return None
+        return normalized_label, value
+
+    patterns = [
+        r"^(?P<label>[A-Za-z0-9][A-Za-z0-9\s_./&()\-]*?[A-Za-z0-9])\s*(?P<sep>[:=]|[-]{1,3}|[/]{1,3}|[;]{1,3})\s*(?P<value>.+?)\s*$",
+    ]
+
+    for pattern_text in patterns:
+        match = re.match(pattern_text, candidate, flags=re.IGNORECASE)
+        if not match:
+            continue
+
+        label = match.group("label").strip()
+        if not label:
+            continue
+
+        normalized_label = _normalize_label(label)
+        value = _clean_value(match.group("value"))
+        if not normalized_label or not value:
+            continue
+        if not _is_label_candidate(normalized_label):
+            continue
+        if _is_header_like(normalized_label, value):
+            continue
+        if len(normalized_label.split()) > 6:
+            continue
+        return normalized_label, value
+
     return None
 
 
-def _parse_amount(value: str | None) -> float | int | None:
-    """Parse monetary values into a number."""
-    if not value:
-        return None
+def parse_notice_fields(raw_text: str) -> dict[str, str]:
+    """Parse arbitrary label/value entries from OCR or PDF text.
 
-    cleaned = value.replace(",", "").replace("$", "").strip()
-    # Strip common trailing punctuation introduced by OCR or surrounding text
-    cleaned = cleaned.rstrip(".,;:")
-    if not cleaned:
-        return None
-
-    try:
-        numeric = float(cleaned)
-    except ValueError:
-        return None
-
-    return int(numeric) if numeric.is_integer() else numeric
-
-
-def parse_notice_fields(text: str) -> tuple[dict[str, Any], list[str], str | None]:
-    """Parse notice fields from raw OCR or PDF text.
-
-    Returns a tuple of (parsed_fields, unparsed_fields).
+    The parser scans each line for a generic pattern of label + separator + value,
+    normalizes the label for comparison, and ignores non-matching lines.
     """
-    json_error: str | None = None
-    if not text:
-        return {}, ["notice_id", "recipient", "amount_due", "due_date"], None
+    if not raw_text:
+        return {}
 
-    # Normalize common OCR substitutions before attempting regex extraction:
-    # - replace curly/typographic quotes with straight quotes
-    # - replace non-breaking spaces with regular spaces
-    # - strip leading/trailing whitespace on each line
-    normalized_text = (
-        text
-        .replace("\u201c", '"')
-        .replace("\u201d", '"')
-        .replace("\u2018", "'")
-        .replace("\u2019", "'")
-        .replace("\u00A0", " ")
-    )
-    normalized_text = "\n".join(line.strip() for line in normalized_text.splitlines())
+    parsed: dict[str, str] = {}
+    for line in raw_text.splitlines():
+        match = _match_line(line)
+        if match is None:
+            continue
 
-    # Use regex-based, OCR-tolerant extraction for each field.
-    # Drop blank lines for regex matching.
-    normalized = "\n".join(part for part in normalized_text.splitlines() if part)
+        label, value = match
+        parsed[label] = value
 
-    parsed: dict[str, Any] = {}
-    unparsed: list[str] = []
-
-    # Patterns follow: allow underscore or space in field name,
-    # allow separators :, =, - with optional whitespace, optional wrapping quotes,
-    # capture up to next comma, quote, or linebreak.
-    # Allow any run of non-alphanumeric characters as a separator between
-    # the field name and its value (covers quotes, colons, equals, hyphens,
-    # underscores, semicolons, whitespace, etc.).
-    sep = r"(?:[^A-Za-z0-9]+)"
-    notice_id_patterns = [
-        rf"notice[_ ]id\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
-    ]
-    # Allow commas inside recipient names (e.g., "Last, Jr.") so exclude only
-    # quotes and newlines from the capture for recipient. For amounts, capture
-    # only numeric/currency characters to keep internal commas/periods.
-    recipient_patterns = [
-        rf"recipient\s*[\"']?\s*{sep}\s*[\"']?([^\"'\n]+)",
-        rf"to\s*[\"']?\s*{sep}\s*[\"']?([^\"'\n]+)",
-    ]
-    amount_patterns = [
-        rf"amount[_ ]due\s*[\"']?\s*{sep}\s*[\"']?([\$0-9,\.]+)",
-        rf"amount\s*[\"']?\s*{sep}\s*[\"']?([\$0-9,\.]+)",
-        rf"balance\s*[\"']?\s*{sep}\s*[\"']?([\$0-9,\.]+)",
-    ]
-    # Only match explicit "due date" or "date due" fields — avoid matching
-    # other fields like "issue_date" which also contain the word "date".
-    due_date_patterns = [
-        rf"due[_ ]date\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
-        rf"date[_ ]due\s*[\"']?\s*{sep}\s*[\"']?([^,\"'\n]+)",
-    ]
-
-    notice_id = _first_match(normalized, notice_id_patterns)
-    if notice_id:
-        parsed["notice_id"] = notice_id.strip()
-    else:
-        unparsed.append("notice_id")
-
-    recipient = _first_match(normalized, recipient_patterns)
-    if recipient:
-        # Trim any trailing content that looks like the next field (amount/due)
-        tail_split = re.split(r"\b(?:amount|balance|due|issue|notice)\b", recipient, flags=re.IGNORECASE)
-        parsed["recipient"] = tail_split[0].strip()
-    else:
-        unparsed.append("recipient")
-
-    amount_val = _first_match(normalized, amount_patterns)
-    parsed_amount = _parse_amount(amount_val.strip() if amount_val else None)
-    if parsed_amount is not None:
-        parsed["amount_due"] = parsed_amount
-    else:
-        unparsed.append("amount_due")
-
-    due_date = _first_match(normalized, due_date_patterns)
-    if due_date:
-        parsed["due_date"] = due_date.strip()
-    else:
-        unparsed.append("due_date")
-
-    return parsed, unparsed, json_error
+    return parsed

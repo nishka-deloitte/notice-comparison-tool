@@ -18,10 +18,10 @@ def _compare_values(value_a: Any, value_b: Any, field: str) -> dict[str, Any]:
         return {"field": field, "status": "match", "value_a": None, "value_b": None}
 
     if value_a is None:
-        return {"field": field, "status": "missing", "value_a": None, "value_b": value_b}
+        return {"field": field, "status": "missing", "missing_in": "left", "value_a": None, "value_b": value_b}
 
     if value_b is None:
-        return {"field": field, "status": "missing", "value_a": value_a, "value_b": None}
+        return {"field": field, "status": "missing", "missing_in": "right", "value_a": value_a, "value_b": None}
 
     if type(value_a) is not type(value_b):
         return {"field": field, "status": "mismatch", "value_a": value_a, "value_b": value_b}
@@ -49,11 +49,23 @@ def _compare_nested(left: dict[str, Any], right: dict[str, Any], prefix: str = "
         right_value = right.get(key)
 
         if key not in left:
-            differences.append({"field": field_name, "status": "missing", "value_a": None, "value_b": right_value})
+            differences.append({
+                "field": field_name,
+                "status": "missing",
+                "missing_in": "left",
+                "value_a": None,
+                "value_b": right_value,
+            })
             continue
 
         if key not in right:
-            differences.append({"field": field_name, "status": "missing", "value_a": left_value, "value_b": None})
+            differences.append({
+                "field": field_name,
+                "status": "missing",
+                "missing_in": "right",
+                "value_a": left_value,
+                "value_b": None,
+            })
             continue
 
         if isinstance(left_value, dict) and isinstance(right_value, dict):
@@ -66,10 +78,9 @@ def _compare_nested(left: dict[str, Any], right: dict[str, Any], prefix: str = "
 
 
 def compare_notices(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-    """Compare two notice extraction results and return a structured diff result."""
-    # Exclude internal diagnostic keys from comparison
-    left_for_compare = {k: v for k, v in left.items() if k != "metadata"}
-    right_for_compare = {k: v for k, v in right.items() if k != "metadata"}
+    """Compare two notice extraction results using the union of their parsed keys."""
+    left_for_compare = {k: v for k, v in left.items() if k != "metadata" and not str(k).startswith("metadata.")}
+    right_for_compare = {k: v for k, v in right.items() if k != "metadata" and not str(k).startswith("metadata.")}
 
     differences = _compare_nested(left_for_compare, right_for_compare)
     mismatch_count = sum(1 for entry in differences if entry["status"] == "mismatch")
