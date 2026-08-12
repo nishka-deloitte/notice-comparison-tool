@@ -1,4 +1,4 @@
-"""Tests for the PyMuPDF/EasyOCR notice extractor."""
+"""Tests for the PyMuPDF/RapidOCR notice extractor."""
 
 from __future__ import annotations
 
@@ -57,6 +57,34 @@ def test_extract_notice_fields_raises_for_unsupported_type() -> None:
     """Unsupported file types should raise a clear extraction error."""
     with pytest.raises(extractor.ExtractionError, match="Unsupported file type"):
         extractor.extract_notice_fields(b"fake", "text/plain")
+
+
+def test_ocr_image_bytes_uses_rapidocr_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OCR should call the module-level RapidOCR instance and extract the text payload from each result entry."""
+
+    class FakeImageData:
+        def convert(self, mode):
+            return self
+
+    class FakeImage:
+        @staticmethod
+        def open(_):
+            return FakeImageData()
+
+    class FakeNumpy:
+        @staticmethod
+        def array(value):
+            return [1, 2, 3]
+
+    def fake_engine(image_array):
+        assert image_array == [1, 2, 3]
+        return ([([1, 2], "First line", 0.99), ([3, 4], "Second line", 0.88)], None)
+
+    monkeypatch.setattr(extractor, "Image", FakeImage)
+    monkeypatch.setattr(extractor, "np", FakeNumpy)
+    monkeypatch.setattr(extractor, "_ocr_engine", fake_engine)
+
+    assert extractor._ocr_image_bytes(b"fake-image") == "First line\nSecond line"
 
 
 def test_extract_notice_fields_collects_pdf_form_fields(monkeypatch: pytest.MonkeyPatch) -> None:
