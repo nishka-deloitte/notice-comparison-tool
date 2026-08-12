@@ -9,7 +9,7 @@ from typing import Any
 import streamlit as st
 
 from src.diff_engine import compare_notices
-from src.extractor import ExtractionError, extract_notice_fields
+from src.extractor import ExtractionError, extract_notice_fields, get_ocr_error_message, is_ocr_available
 from src.text_diff import build_text_diff_summary, compare_full_text, render_word_diff_for_side
 
 
@@ -264,6 +264,13 @@ def main() -> None:
     """Render the comparison view and review workflow."""
     st.set_page_config(page_title="Notice Comparison Tool", page_icon="📋")
     st.title("Notice Comparison Tool")
+
+    if not is_ocr_available():
+        st.error(
+            "OCR is unavailable in this environment. RapidOCR failed to initialize "
+            f"during startup: {get_ocr_error_message()}. Uploads will not work until the OCR dependency is fixed."
+        )
+        st.stop()
 
     st.write("Upload two documents (PDF or JPEG) and compare them side by side.")
 
